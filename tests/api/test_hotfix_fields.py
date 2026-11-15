@@ -40,3 +40,25 @@ def test_update_history_returns_kb_date_and_result():
     assert entry["kbId"] == "KB2267602"
     assert entry["installedOn"].startswith("2026-11-01")
     assert entry["resultCode"] == "Succeeded"
+
+
+def test_update_history_keeps_every_attempt():
+    """An update installed a second time has the same update ID: both attempts are kept (newest first)"""
+    hostname = f"hotfix-attempts-{uuid.uuid4().hex[:8]}"
+    title = "2026-11 Cumulative Update for Microsoft server operating system (KB5136489)"
+    r = requests.post(f"{API_URL}/api/v1/inventory/hotfixes", headers=HEADERS, timeout=30, json={
+        "hostname": hostname, "nodeId": hostname,
+        "hotfixes": [{"hotfixId": "KB5136489", "description": "Update", "installedOn": "2026-11-15"}],
+        "updateHistory": [  # the agent sends the newest first
+            {"updateId": "cu-1", "kbId": "KB5136489", "title": title, "installedOn": "2026-11-15T15:23:09Z",
+             "operation": "Installation", "resultCode": "Succeeded"},
+            {"updateId": "cu-1", "kbId": "KB5136489", "title": title, "installedOn": "2026-11-15T14:44:22Z",
+             "operation": "Installation", "resultCode": "Failed"},
+        ],
+    })
+    assert r.status_code == 200, r.text
+    r = requests.get(f"{API_URL}/api/v1/inventory/hotfixes/{hostname}", headers=user_headers(), timeout=10)
+    assert r.status_code == 200, r.text
+    history = r.json()["data"]["updateHistory"]
+    assert [(e["resultCode"], e["updateId"]) for e in history] == [("Succeeded", "cu-1"), ("Failed", "cu-1")]
+
